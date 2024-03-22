@@ -240,6 +240,7 @@ class ProssNoSunshine(object):
         elif angle_deg < 0:
             angle_deg += 360
         return angle_deg
+
     def pca_analysis_of_concave_polygon_orientation(self, image_gray):
         # Reapplying adaptive histogram equalization with a lower clip limit to enhance contrast
         image_eq_enhanced = exposure.equalize_adapthist(image_gray, clip_limit=0.01)
@@ -256,35 +257,48 @@ class ProssNoSunshine(object):
                                                                       return_num=True)
         props_enhanced = measure.regionprops(labeled_image_enhanced)
 
-        # Plot the labeled image
-        fig, ax = plt.subplots(figsize=(15, 15), dpi=5000)
-        ax.imshow(image_eq_enhanced_uint8, cmap='gray')  # Show the enhanced contrast image
+        # Define figure size and DPI
+        fig_size = 6  # You can adjust this size
+        dpi_val = 100  # You can adjust this DPI value
+
+        # Calculate fontsize proportional to figure size and DPI
+        fontsize_proportional = fig_size * dpi_val / 50  # Adjust denominator for scaling
+
+        # Plot the labeled image with adjusted size and resolution
+        fig, ax = plt.subplots(figsize=(fig_size, fig_size), dpi=dpi_val)
+        ax.imshow(image_eq_enhanced_uint8, cmap='gray')
 
         for prop in props_enhanced:
-            # 获取区域的像素坐标
+            # Get the pixel coordinates of the region
             coords = prop.coords
 
-            # 应用PCA分析
+            # Apply PCA analysis
             pca = PCA(n_components=2)
             pca.fit(coords)
             first_component = pca.components_[0]
-            # # 确保方向在0-180°范围内
-            # if first_component[1] < 0:
-            #     first_component = -first_component
-            # 获取PCA方向和位置
-            angle = self.get_angle(first_component)
-            center = prop.centroid
-            # if angle<=0:
-            #     rotated_vector = self.rotate_vector(first_component, -180)  # 旋转180度
-            #     vector = rotated_vector * 50  # 调整向量长度以用于可视化
-            # else :
-            #     vector = first_component * 50  # 调整向量长度以用于可视化
-            vector = first_component * 50  # 调整向量长度以用于可视化
-            # 绘制PCA主成分方向
-            plt.quiver(center[1], center[0], vector[1], vector[0], angles='xy', scale_units='xy', scale=1, color='red')
 
-            text_pos = (center[1] + vector[1], center[0] + vector[0])
-            plt.text(text_pos[0], text_pos[1], f"{angle:.2f}°", color='blue',fontsize=1)
+            # Correcting direction to ensure it's between 9 o'clock and 3 o'clock direction
+            # This makes sure the angle is measured clockwise from the 9 o'clock direction
+            angle = np.degrees(np.arctan2(-first_component[0], first_component[1]))
+
+            # Get PCA direction and position
+            center = prop.centroid
+            vector_length = 50  # Adjust vector length for visualization
+            if angle > 0:
+                adjusted_vector = np.array([-first_component[1], first_component[0]])  # Reverse direction
+            else:
+                adjusted_vector = np.array([first_component[1], -first_component[0]])
+
+            if angle > 0:
+                angle -= 180
+            vector = adjusted_vector * vector_length
+
+            # Plot PCA principal component direction
+            plt.quiver(center[1], center[0], vector[0], vector[1], angles='xy', scale_units='xy', scale=1, color='red')
+
+            text_pos = (center[1] + vector[0], center[0] + vector[1])
+            plt.text(text_pos[0], text_pos[1], f"{-angle:.2f}°", color='blue', fontsize=fontsize_proportional)
+
         plt.axis('equal')
         plt.show()
 
@@ -440,10 +454,10 @@ class ProssNoSunshine(object):
             #self.connected_component_analysis(img_output_gray_binary)
             # edges=self.edge_detection(img_output_gray_binary)
             # self.plot_edge_in_orign_img(edges)
-            self.connected_component_analysis_and_ellipse_fitting(img_output_gray_binary)
-            #self.pca_analysis_of_concave_polygon_orientation(img_output_gray_binary)
-            #self.color_regions_by_orientation(img_output_gray_binary)
-            #self.color_regions_by_orientation_with_colorbar_adjusted(img_output_gray_binary)
+            # self.connected_component_analysis_and_ellipse_fitting(img_output_gray_binary)
+            self.pca_analysis_of_concave_polygon_orientation(img_output_gray_binary)
+            # self.color_regions_by_orientation(img_output_gray_binary)
+            # self.color_regions_by_orientation_with_colorbar_adjusted(img_output_gray_binary)
 
 if __name__ == '__main__':
     path_of_img_no_shadow = os.path.join('..', 'data', 'data_0030160180_sun_diseable.jpg')
