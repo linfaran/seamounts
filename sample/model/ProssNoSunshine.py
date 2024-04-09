@@ -12,6 +12,8 @@ from matplotlib.colors import LinearSegmentedColormap
 from skimage.feature import canny
 import scipy.optimize as so
 from sklearn.decomposition import PCA
+from skimage.measure import find_contours
+from scipy.ndimage import binary_fill_holes
 class ProssNoSunshine(object):
 
     def __init__(self, path_of_img_no_shadow,path_of_img_with_shadow,path_of_img_with_ramp_shader):
@@ -241,22 +243,46 @@ class ProssNoSunshine(object):
             angle_deg += 360
         return angle_deg
 
+    def chain_code_analysis(self,edges):
+        """
+        简化版链码分析函数，计算图像边缘的链码，并估计主要朝向。
+        """
+        # 查找边缘上的轮廓，这里假设edges是一个二值化的边缘图像
+        contours = find_contours(edges, level=0.5)
+
+        if not contours:
+            return 0  # 如果没有找到轮廓，返回0作为默认朝向
+
+        # 选取最长的轮廓进行分析
+        longest_contour = max(contours, key=len)
+
+        # 计算每一步的方向变化（链码）
+        deltas = np.diff(longest_contour, axis=0)
+        directions = np.arctan2(deltas[:, 0], deltas[:, 1])
+
+        # 将方向转换为角度
+        degrees = np.rad2deg(directions)
+
+        # 计算所有角度的直方图，找到最常见的方向
+        hist, _ = np.histogram(degrees, bins=np.arange(-180, 181, 10), density=True)
+        most_common_direction = np.argmax(hist) * 10 - 180
+
+        return most_common_direction
+
     def pca_analysis_of_concave_polygon_orientation(self, image_gray):
         # Reapplying adaptive histogram equalization with a lower clip limit to enhance contrast
         image_eq_enhanced = exposure.equalize_adapthist(image_gray, clip_limit=0.01)
-
         # Convert the enhanced image back to uint8 format
         image_eq_enhanced_uint8 = (image_eq_enhanced * 255).astype(np.uint8)
-
         # Use a threshold to create a binary image
         thresh_enhanced = filters.threshold_otsu(image_eq_enhanced_uint8)
         binary_image_enhanced = image_eq_enhanced_uint8 > thresh_enhanced
-
+        binary_image_filled = binary_fill_holes(binary_image_enhanced)  # 填充多边形内部
+        edges = feature.canny(binary_image_filled)  # 使用Canny边缘检测
         # Perform connected component analysis to label the regions
         labeled_image_enhanced, num_features_enhanced = measure.label(binary_image_enhanced, background=0,
                                                                       return_num=True)
         props_enhanced = measure.regionprops(labeled_image_enhanced)
-
         # Define figure size and DPI
         fig_size = 6  # You can adjust this size
         dpi_val = 100  # You can adjust this DPI value
@@ -267,8 +293,9 @@ class ProssNoSunshine(object):
         # Plot the labeled image with adjusted size and resolution
         fig, ax = plt.subplots(figsize=(fig_size, fig_size), dpi=dpi_val)
         ax.imshow(image_eq_enhanced_uint8, cmap='gray')
-
+        angles_list = []
         for prop in props_enhanced:
+            chain_orientation = self.chain_code_analysis(edges)
             # Get the pixel coordinates of the region
             coords = prop.coords
 
@@ -291,6 +318,7 @@ class ProssNoSunshine(object):
 
             if angle > 0:
                 angle -= 180
+            angles_list.append(-angle)
             vector = adjusted_vector * vector_length
 
             # Plot PCA principal component direction
@@ -299,9 +327,30 @@ class ProssNoSunshine(object):
             text_pos = (center[1] + vector[0], center[0] + vector[1])
             plt.text(text_pos[0], text_pos[1], f"{-angle:.2f}°", color='blue', fontsize=fontsize_proportional)
 
+            # 计算链码方向的向量（示例代码，根据需要调整长度和方向）
+            chain_vector_length = 50  # 可以调整以适合你的可视化需求
+            chain_dx = chain_vector_length * np.cos(np.radians(chain_orientation))
+            chain_dy = chain_vector_length * np.sin(np.radians(chain_orientation))
+
+            # 绘制链码分析的方向
+            plt.quiver(center[1], center[0], chain_dx, chain_dy, angles='xy', scale_units='xy', scale=1, color='green',
+                       width=0.005)
+
+            # 你可以选择在向量末端添加文本以标示方向
+            plt.text(center[1] + chain_dx, center[0] + chain_dy, f"Chain: {chain_orientation:.2f}°", color='green',
+                     fontsize=fontsize_proportional / 2)
+
         plt.axis('equal')
         plt.show()
 
+        # After the loop, plot the histogram of angles
+        plt.figure(figsize=(10, 6))
+        plt.hist(angles_list, bins=30, color='skyblue', edgecolor='black')
+        plt.title('Distribution of Polygon Orientations')
+        plt.xlabel('Orientation Angle (Degrees)')
+        plt.ylabel('Frequency')
+        plt.grid(True)
+        plt.show()
     def color_regions_by_orientation(self, image_gray):
         # Reapplying adaptive histogram equalization with a lower clip limit to enhance contrast
         image_eq_enhanced = exposure.equalize_adapthist(image_gray, clip_limit=0.01)
@@ -367,7 +416,6 @@ class ProssNoSunshine(object):
 
         # Convert the enhanced image back to uint8 format
         image_eq_enhanced_uint8 = (image_eq_enhanced * 255).astype(np.uint8)
-
         # Use a threshold to create a binary image
         thresh_enhanced = filters.threshold_otsu(image_eq_enhanced_uint8)
         binary_image_enhanced = image_eq_enhanced_uint8 > thresh_enhanced
@@ -449,7 +497,7 @@ class ProssNoSunshine(object):
     def plot_img(self):
         if self.img is not None:
             img_output = self.enhance_image_contrast(self.img)
-            # self.resize_img_show(img_output, scale=6)
+            #self.resize_img_show(img_output, scale=6)
             img_output_gray_binary=self.gray_binary_img(img_output)
             #self.connected_component_analysis(img_output_gray_binary)
             # edges=self.edge_detection(img_output_gray_binary)
